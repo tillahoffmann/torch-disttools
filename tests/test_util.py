@@ -9,9 +9,14 @@ def test_setattr():
     assert Foo.foo == "bar"
 
 
-def test_setattr_exists():
+@pytest.mark.parametrize("override", [False, True])
+def test_setattr_exists(override: bool):
     class Foo:
         foo = "baz"
-    with pytest.warns(UserWarning):
-        util._setattr(Foo, "foo", "bar")
-    assert Foo.foo == "baz"
+    if override:
+        util._setattr(Foo, "foo", "bar", override=override)
+        assert Foo.foo == "bar"
+    else:
+        with pytest.warns(UserWarning):
+            util._setattr(Foo, "foo", "bar", override=override)
+        assert Foo.foo == "baz"
