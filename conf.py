@@ -1,6 +1,5 @@
 master_doc = "README"
 extensions = [
-    "matplotlib.sphinxext.plot_directive",
     "sphinx.ext.doctest",
     "sphinx.ext.napoleon",
     "sphinx.ext.autodoc",
@@ -20,7 +19,5 @@ autodoc_typehints_format = "short"
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
-    "scipy": ("https://docs.scipy.org/doc/scipy/", None),
-    "matplotlib": ("https://matplotlib.org/stable", None),
     "torch": ("https://pytorch.org/docs/stable/", None),
 }
