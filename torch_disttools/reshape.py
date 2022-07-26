@@ -18,6 +18,42 @@ def _get_logistic_normal_event_dims(distribution: th.distributions.LogisticNorma
             in distribution.arg_constraints.items()}
 
 
+def _get_multinomial_event_dims(distribution: th.distributions.Multinomial):
+    event_dims = {"total_count": None}
+    event_dims.update(_get_dict_event_dims(distribution._categorical))
+    # Remove "probs" if "logits" exists.
+    if "logits" in event_dims:
+        event_dims.pop("probs", None)
+    return event_dims
+
+
+def _get_one_hot_categorical_event_dims(distribution: th.distributions.Multinomial):
+    event_dims = _get_dict_event_dims(distribution._categorical)
+    # Remove "probs" if "logits" exists.
+    if "logits" in event_dims:
+        event_dims.pop("probs", None)
+    return event_dims
+
+
+def _get_relaxed_bernoulli_event_dims(distribution: th.distributions.RelaxedBernoulli):
+    event_dims = {"temperature": None}
+    event_dims.update(_get_dict_event_dims(distribution.base_dist))
+    # Remove "probs" if "logits" exists.
+    if "logits" in event_dims:
+        event_dims.pop("probs", None)
+    return event_dims
+
+
+def _get_relaxed_one_hot_categorical_event_dims(
+        distribution: th.distributions.RelaxedOneHotCategorical):
+    event_dims = {"temperature": None}
+    event_dims.update(_get_dict_event_dims(distribution.base_dist._categorical))
+    # Remove "probs" if "logits" exists.
+    if "logits" in event_dims:
+        event_dims.pop("probs", None)
+    return event_dims
+
+
 EVENT_DIM_LOOKUP = {
     th.distributions.Bernoulli: _get_dict_event_dims,
     th.distributions.Binomial: _get_dict_event_dims,
@@ -26,9 +62,23 @@ EVENT_DIM_LOOKUP = {
     th.distributions.Geometric: _get_dict_event_dims,
     th.distributions.LKJCholesky: _get_lkj_cholesky_event_dims,
     th.distributions.LogisticNormal: _get_logistic_normal_event_dims,
-    th.distributions.NegativeBinomial: _get_dict_event_dims,
+    th.distributions.Multinomial: _get_multinomial_event_dims,
     th.distributions.MultivariateNormal: _get_dict_event_dims,
+    th.distributions.NegativeBinomial: _get_dict_event_dims,
+    th.distributions.OneHotCategorical: _get_one_hot_categorical_event_dims,
+    th.distributions.OneHotCategoricalStraightThrough: _get_one_hot_categorical_event_dims,
+    th.distributions.RelaxedBernoulli: _get_relaxed_bernoulli_event_dims,
+    th.distributions.RelaxedOneHotCategorical: _get_relaxed_one_hot_categorical_event_dims,
+    th.distributions.Wishart: _get_dict_event_dims,
 }
+
+
+def _reshape_transformed_distribution(
+        distribution: th.distributions.TransformedDistribution, batch_shape: th.Size,
+        event_dims: typing.Optional[typing.Mapping[str, int]] = None) \
+        -> th.distributions.TransformedDistribution:
+    reshaped_base_dist = reshape(distribution.base_dist, batch_shape, event_dims)
+    return type(distribution)(reshaped_base_dist, distribution.transforms)
 
 
 def reshape(
@@ -45,6 +95,9 @@ def reshape(
             the function will attempt to look up the event dimensions from `EVENT_DIM_LOOKUP`. If
             not possible, the function will try to infer the event dimensions.
     """
+    # Dispatch to if this *is* a TransformedDistribution distribution, not just an instance.
+    if type(distribution) is th.distributions.TransformedDistribution:
+        return _reshape_transformed_distribution(distribution, batch_shape, event_dims)
     # Identify the event dimensions of each parameter.
     if not event_dims:
         if func := EVENT_DIM_LOOKUP.get(type(distribution)):

@@ -1,16 +1,66 @@
 import pytest
 import torch as th
-from torch.distributions.constraints import Constraint
+from torch.distributions import constraints
 import torch_disttools as td
 import typing
+import warnings
 
 
-# Combiations of source and target batch shapes.
-@pytest.mark.parametrize("batch_shapes", [
+def sample_value(shape_or_value, batch_shape: typing.Tuple[int],
+                 constraint: constraints.Constraint) -> th.Tensor:
+    """
+    Sample a value with the given batch shape satisfying a constraint. If the first argument is not
+    shape-like, it is returned as is and other arguments are ignored.
+    """
+    if isinstance(shape_or_value, (tuple, th.Size)):
+        unconstrained = th.randn(batch_shape + shape_or_value)
+        # Manually apply a positive definite constraint (see
+        # https://github.com/pytorch/pytorch/pull/76777 for details).
+        if constraint is constraints.positive_definite:
+            value: th.Tensor = th.distributions.LowerCholeskyTransform()(unconstrained)
+            return value @ value.mT + 1e-3 * th.eye(value.shape[-1])
+        else:
+            transform: th.distributions.Transform = th.distributions.transform_to(constraint)
+            return transform(unconstrained)
+    else:
+        return shape_or_value
+
+
+def check_reshaped_dist(dist: th.distributions.Distribution, shape_to: typing.Tuple[int]) -> None:
+    # Reshape and make sure the dimensions behave as expected.
+    reshaped = td.reshape(dist, shape_to)
+    assert reshaped.batch_shape == shape_to
+
+    # Ensure the means are the same after reshaping.
+    try:
+        reshaped_mean: th.Tensor = dist.mean.reshape(shape_to + dist.event_shape)
+        assert th.allclose(reshaped_mean.nan_to_num(th.pi), reshaped.mean.nan_to_num(th.pi))
+    except NotImplementedError:
+        pass
+
+    # Ensure that samples have the correct shape.
+    assert reshaped.sample().shape == shape_to + dist.event_shape
+
+    # Ensure that samples are the same after reshaping by setting a seed.
+    seed = th.randint(1024, ())
+    th.manual_seed(seed)
+    reshaped_sample = dist.sample().reshape(shape_to + dist.event_shape)
+    th.manual_seed(seed)
+    assert th.allclose(reshaped_sample.nan_to_num(th.pi), reshaped.sample().nan_to_num(th.pi))
+
+
+@pytest.fixture(params=[
     ((5 * 2,), (5, 2)),
     ((2, 3, 5), (2 * 3, 5)),
     ((2, 3, 5), (3, 2 * 5)),
 ])
+def batch_shapes(request: pytest.FixtureRequest):
+    """
+    Combinations of source and target batch shapes.
+    """
+    return request.param
+
+
 # Distribution classes and the shape of samples in unconstrained space.
 @pytest.mark.parametrize("spec", [
     (th.distributions.Bernoulli, {"probs": ()}),
@@ -36,33 +86,28 @@ import typing
     (th.distributions.LKJCholesky, {"dim": 4, "concentration": ()}),
     (th.distributions.LogisticNormal, {"loc": (7,), "scale": (7,)}),
     (th.distributions.LogNormal, {"loc": (), "scale": ()}),
-    pytest.param(th.distributions.LowRankMultivariateNormal, marks=pytest.mark.skip),
-    pytest.param(th.distributions.MixtureSameFamily, marks=pytest.mark.skip),
-    pytest.param(th.distributions.Multinomial, marks=pytest.mark.skip),
-    pytest.param((th.distributions.MultivariateNormal, {"loc": (13,), "covariance_matrix": None}),
-                 marks=pytest.mark.skip(reason="https://github.com/pytorch/pytorch/pull/76777")),
-    pytest.param((th.distributions.MultivariateNormal, {"loc": (13,), "precision_matrix": None}),
-                 marks=pytest.mark.skip(reason="https://github.com/pytorch/pytorch/pull/76777")),
+    (th.distributions.LowRankMultivariateNormal, {"loc": (7,), "cov_factor": (7, 7),
+                                                  "cov_diag": (7,)}),
+    (th.distributions.Multinomial, {"total_count": 23, "probs": (5,)}),
+    (th.distributions.Multinomial, {"total_count": 31, "logits": (5,)}),
+    (th.distributions.MultivariateNormal, {"loc": (13,), "covariance_matrix": (13, 13)}),
+    (th.distributions.MultivariateNormal, {"loc": (13,), "precision_matrix": (13, 13)}),
     (th.distributions.MultivariateNormal, {"loc": (13,), "scale_tril": (13, 13)}),
     (th.distributions.NegativeBinomial, {"total_count": (), "probs": ()}),
     (th.distributions.Normal, {"loc": (), "scale": ()}),
-    pytest.param(th.distributions.OneHotCategorical, marks=pytest.mark.skip),
-    pytest.param(th.distributions.OneHotCategoricalStraightThrough, marks=pytest.mark.skip),
+    (th.distributions.OneHotCategorical, {"probs": (17,)}),
+    (th.distributions.OneHotCategorical, {"logits": (17,)}),
+    (th.distributions.OneHotCategoricalStraightThrough, {"probs": (17,)}),
+    (th.distributions.OneHotCategoricalStraightThrough, {"logits": (17,)}),
     (th.distributions.Pareto, {"scale": (), "alpha": ()}),
     (th.distributions.Poisson, {"rate": ()}),
-    pytest.param(th.distributions.RelaxedBernoulli, marks=pytest.mark.skip),
-    pytest.param(th.distributions.RelaxedOneHotCategorical, marks=pytest.mark.skip),
+    (th.distributions.RelaxedBernoulli, {"probs": (), "temperature": 2}),
+    (th.distributions.RelaxedBernoulli, {"logits": (), "temperature": 1.5}),
+    (th.distributions.RelaxedOneHotCategorical, {"probs": (4,), "temperature": 1.1}),
+    (th.distributions.RelaxedOneHotCategorical, {"logits": (4,), "temperature": 1.3}),
     (th.distributions.StudentT, {"df": (), "loc": (), "scale": ()}),
-    pytest.param((th.distributions.Uniform, {"low": (), "high": ()}),
-                 marks=pytest.mark.skip("cannot transform to dependent constraints")),
     (th.distributions.VonMises, {"loc": (), "concentration": ()}),
     (th.distributions.Weibull, {"scale": (), "concentration": ()}),
-    pytest.param((th.distributions.Wishart, {"df": (), "covariance_matrix": None}),
-                 marks=pytest.mark.skip(reason="https://github.com/pytorch/pytorch/pull/76777")),
-    pytest.param((th.distributions.Wishart, {"df": (), "precision_matrix": None}),
-                 marks=pytest.mark.skip(reason="https://github.com/pytorch/pytorch/pull/76777")),
-    pytest.param((th.distributions.Wishart, {"df": (), "scale_tril": (13, 13)}),
-                 marks=pytest.mark.skip(reason="df should have dependent constraint > dim - 1")),
 ])
 def test_reshape(
     batch_shapes: typing.Tuple[th.Size, th.Size],
@@ -74,29 +119,74 @@ def test_reshape(
     cls, arg_shapes = spec
 
     # Generate the parameters we need and create a distribution.
-    args = {}
-    for name, shape in arg_shapes.items():
-        if isinstance(shape, (tuple, th.Size)):
-            unconstrained = th.randn(shape_from + shape)
-            constraint: Constraint = cls.arg_constraints[name]
-            transform: th.distributions.Transform = th.distributions.transform_to(constraint)
-            args[name] = transform(unconstrained)
-        else:
-            args[name] = shape  # Just copy the literal value.
+    args = {name: sample_value(shape, shape_from, cls.arg_constraints.get(name))
+            for name, shape in arg_shapes.items()}
 
     dist = cls(**args)
     assert dist.batch_shape == shape_from
+    check_reshaped_dist(dist, shape_to)
 
-    # Reshape and make sure the dimensions behave as expected.
-    reshaped = td.reshape(dist, shape_to)
-    assert reshaped.batch_shape == shape_to
 
-    # Ensure the means are the same after reshaping.
-    try:
-        reshaped_mean = dist.mean.reshape(shape_to + dist.event_shape)
-        assert (reshaped_mean.nan_to_num(th.pi) == reshaped.mean.nan_to_num(th.pi)).all()
-    except NotImplementedError:
-        pass
+@pytest.mark.parametrize("p", [2, 3])
+@pytest.mark.parametrize("arg", ["covariance_matrix", "precision_matrix", "scale_tril"])
+def test_reshape_wishart(batch_shapes: typing.Tuple[int], p: int, arg: str):
+    """
+    Separate test required because df depends on the dimensionality of the matrix.
+    """
+    shape_from, shape_to = batch_shapes
+    value = sample_value((p, p), shape_from, th.distributions.Wishart.arg_constraints[arg])
+    # Sample a large-ish df to make most samples well-behaved, e.g., not singular.
+    df = sample_value((), shape_from, constraints.greater_than(10 + p))
+    dist = th.distributions.Wishart(df, **{arg: value})
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", "Singular sample detected.")
+        check_reshaped_dist(dist, shape_to)
 
-    # Ensure that samples have the correct shape.
-    assert reshaped.sample().shape == shape_to + dist.event_shape
+
+def test_reshape_uniform(batch_shapes: typing.Tuple[int]):
+    """
+    Separate test required because `low` and `high` have mutual constraints.
+    """
+    shape_from, shape_to = batch_shapes
+    low = sample_value((), shape_from, constraints.real)
+    width = sample_value((), shape_from, constraints.positive)
+    high = low + width
+    dist = th.distributions.Uniform(low, high)
+    check_reshaped_dist(dist, shape_to)
+
+
+@pytest.mark.skip("not yet implemented")
+def test_reshape_mixture_same_family(batch_shapes: typing.Tuple[int]):
+    raise NotImplementedError
+
+
+@pytest.mark.parametrize("transform", [
+    th.distributions.AbsTransform(),
+    th.distributions.AffineTransform(3, 2),
+    pytest.param(th.distributions.CatTransform, marks=pytest.mark.skip),
+    th.distributions.ExpTransform(),
+    th.distributions.SigmoidTransform(),
+    pytest.param(th.distributions.ComposeTransform, marks=pytest.mark.skip),
+    pytest.param(th.distributions.CorrCholeskyTransform(),
+                 marks=pytest.mark.skip("needs Independent distribution")),
+    th.distributions.CumulativeDistributionTransform(th.distributions.Normal(3, 2)),
+    pytest.param(th.distributions.IndependentTransform, marks=pytest.mark.skip),
+    pytest.param(th.distributions.LowerCholeskyTransform(),
+                 marks=pytest.mark.skip("needs Independent distribution")),
+    th.distributions.PowerTransform(2.5),
+    pytest.param(th.distributions.ReshapeTransform, marks=pytest.mark.skip),
+    pytest.param(th.distributions.SoftmaxTransform(),
+                 marks=pytest.mark.skip("needs Independent distribution")),
+    th.distributions.SoftplusTransform(),
+    pytest.param(th.distributions.StackTransform, marks=pytest.mark.skip),
+    pytest.param(th.distributions.StickBreakingTransform(),
+                 marks=pytest.mark.skip("needs Independent distribution")),
+    th.distributions.TanhTransform(),
+])
+def test_reshape_transformed_distribution(batch_shapes: typing.Tuple[int],
+                                          transform: th.distributions.Transform):
+    shape_from, shape_to = batch_shapes
+    shape = shape_from + (10,) * transform.domain.event_dim
+    base_dist = th.distributions.Normal(th.randn(shape), th.randn(shape).exp())
+    dist = th.distributions.TransformedDistribution(base_dist, transform)
+    check_reshaped_dist(dist, shape_to)
