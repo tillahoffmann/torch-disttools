@@ -81,6 +81,19 @@ def _reshape_transformed_distribution(
     return type(distribution)(reshaped_base_dist, distribution.transforms)
 
 
+def _reshape_independent_distribution(
+        distribution: th.distributions.Independent, batch_shape: th.Size,
+        event_dims: typing.Optional[typing.Mapping[str, int]] = None) \
+        -> th.distributions.Independent:
+    # The base distribution will have more dimensions than the base distribution. So we need to
+    # handle the extra dimensions explicitly.
+    base_dist = distribution.base_dist
+    reinterpreted_shape = base_dist.batch_shape[-distribution.reinterpreted_batch_ndims:]
+    reshaped_base_dist = reshape(distribution.base_dist, batch_shape + reinterpreted_shape,
+                                 event_dims)
+    return type(distribution)(reshaped_base_dist, distribution.reinterpreted_batch_ndims)
+
+
 def reshape(
         distribution: distributions.Distribution, batch_shape: th.Size,
         event_dims: typing.Optional[typing.Mapping[str, int]] = None) -> distributions.Distribution:
@@ -98,6 +111,8 @@ def reshape(
     # Dispatch to if this *is* a TransformedDistribution distribution, not just an instance.
     if type(distribution) is th.distributions.TransformedDistribution:
         return _reshape_transformed_distribution(distribution, batch_shape, event_dims)
+    if type(distribution) is th.distributions.Independent:
+        return _reshape_independent_distribution(distribution, batch_shape, event_dims)
     # Identify the event dimensions of each parameter.
     if not event_dims:
         if func := EVENT_DIM_LOOKUP.get(type(distribution)):

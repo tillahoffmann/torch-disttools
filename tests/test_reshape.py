@@ -155,6 +155,15 @@ def test_reshape_uniform(batch_shapes: typing.Tuple[int]):
     check_reshaped_dist(dist, shape_to)
 
 
+@pytest.mark.parametrize("reinterpreted_batch_ndims", [1, 2, 3])
+def test_reshape_independent(batch_shapes: typing.Tuple[int], reinterpreted_batch_ndims: int):
+    shape_from, shape_to = batch_shapes
+    base_shape = shape_from + (7, 9, 11)[:reinterpreted_batch_ndims]
+    base_dist = th.distributions.Normal(th.randn(base_shape), th.randn(base_shape).exp())
+    dist = th.distributions.Independent(base_dist, reinterpreted_batch_ndims)
+    check_reshaped_dist(dist, shape_to)
+
+
 @pytest.mark.skip("not yet implemented")
 def test_reshape_mixture_same_family(batch_shapes: typing.Tuple[int]):
     raise NotImplementedError
