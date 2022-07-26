@@ -6,7 +6,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.intersphinx",
 ]
-project = "TEMPLATE_NAME"
+project = "torch_disttools"
 napoleon_custom_sections = [("Returns", "params_style")]
 plot_formats = [
     ("png", 144),
