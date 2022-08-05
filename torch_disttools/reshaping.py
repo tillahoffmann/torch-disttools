@@ -1,76 +1,7 @@
 import torch as th
 from torch import distributions
 import typing
-from .util import _setattr
-
-
-def _get_dict_event_dims(distribution: th.distributions.Bernoulli):
-    return {name: constraint.event_dim for name, constraint in distribution.arg_constraints.items()
-            if name in distribution.__dict__}
-
-
-def _get_lkj_cholesky_event_dims(distribution: th.distributions.LKJCholesky):
-    return {"dim": None, "concentration": distribution.arg_constraints["concentration"].event_dim}
-
-
-def _get_logistic_normal_event_dims(distribution: th.distributions.LogisticNormal):
-    return {name: constraint.event_dim + 1 for name, constraint
-            in distribution.arg_constraints.items()}
-
-
-def _get_multinomial_event_dims(distribution: th.distributions.Multinomial):
-    event_dims = {"total_count": None}
-    event_dims.update(_get_dict_event_dims(distribution._categorical))
-    # Remove "probs" if "logits" exists.
-    if "logits" in event_dims:
-        event_dims.pop("probs", None)
-    return event_dims
-
-
-def _get_one_hot_categorical_event_dims(distribution: th.distributions.Multinomial):
-    event_dims = _get_dict_event_dims(distribution._categorical)
-    # Remove "probs" if "logits" exists.
-    if "logits" in event_dims:
-        event_dims.pop("probs", None)
-    return event_dims
-
-
-def _get_relaxed_bernoulli_event_dims(distribution: th.distributions.RelaxedBernoulli):
-    event_dims = {"temperature": None}
-    event_dims.update(_get_dict_event_dims(distribution.base_dist))
-    # Remove "probs" if "logits" exists.
-    if "logits" in event_dims:
-        event_dims.pop("probs", None)
-    return event_dims
-
-
-def _get_relaxed_one_hot_categorical_event_dims(
-        distribution: th.distributions.RelaxedOneHotCategorical):
-    event_dims = {"temperature": None}
-    event_dims.update(_get_dict_event_dims(distribution.base_dist._categorical))
-    # Remove "probs" if "logits" exists.
-    if "logits" in event_dims:
-        event_dims.pop("probs", None)
-    return event_dims
-
-
-EVENT_DIM_LOOKUP = {
-    th.distributions.Bernoulli: _get_dict_event_dims,
-    th.distributions.Binomial: _get_dict_event_dims,
-    th.distributions.Categorical: _get_dict_event_dims,
-    th.distributions.ContinuousBernoulli: _get_dict_event_dims,
-    th.distributions.Geometric: _get_dict_event_dims,
-    th.distributions.LKJCholesky: _get_lkj_cholesky_event_dims,
-    th.distributions.LogisticNormal: _get_logistic_normal_event_dims,
-    th.distributions.Multinomial: _get_multinomial_event_dims,
-    th.distributions.MultivariateNormal: _get_dict_event_dims,
-    th.distributions.NegativeBinomial: _get_dict_event_dims,
-    th.distributions.OneHotCategorical: _get_one_hot_categorical_event_dims,
-    th.distributions.OneHotCategoricalStraightThrough: _get_one_hot_categorical_event_dims,
-    th.distributions.RelaxedBernoulli: _get_relaxed_bernoulli_event_dims,
-    th.distributions.RelaxedOneHotCategorical: _get_relaxed_one_hot_categorical_event_dims,
-    th.distributions.Wishart: _get_dict_event_dims,
-}
+from .util import _setattr, get_event_dims
 
 
 def _reshape_transformed_distribution(
@@ -120,6 +51,9 @@ def reshape(
             argument or a callable that returns such a mapping given a distribution. If not given,
             the function will attempt to look up the event dimensions from `EVENT_DIM_LOOKUP`. If
             not possible, the function will try to infer the event dimensions.
+
+    Returns:
+        reshaped: Distribution with reshaped batch dimension.
     """
     # Dispatch to if this *is* a TransformedDistribution distribution, not just an instance.
     if type(distribution) is th.distributions.TransformedDistribution:
@@ -128,15 +62,10 @@ def reshape(
         return _reshape_independent_distribution(distribution, batch_shape, event_dims)
     if type(distribution) is th.distributions.MixtureSameFamily:
         return _reshape_mixture_distribution(distribution, batch_shape)
-    # Identify the event dimensions of each parameter.
-    if not event_dims:
-        if func := EVENT_DIM_LOOKUP.get(type(distribution)):
-            event_dims = func(distribution)
-        else:
-            event_dims = {name: constraint.event_dim for name, constraint
-                          in distribution.arg_constraints.items()}
+
     # Get the parameters from the distribution and reshape them.
     args = {}
+    event_dims = event_dims or get_event_dims(distribution)
     for name, event_dim in event_dims.items():
         value: th.Tensor = getattr(distribution, name)
         if event_dim is None:  # Leave the value as is.
