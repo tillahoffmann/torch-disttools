@@ -2,28 +2,9 @@ import pytest
 import torch as th
 from torch.distributions import constraints
 import torch_disttools as td
+from torch_disttools.util import sample_value
 import typing
 import warnings
-
-
-def sample_value(shape_or_value, batch_shape: typing.Tuple[int],
-                 constraint: constraints.Constraint) -> th.Tensor:
-    """
-    Sample a value with the given batch shape satisfying a constraint. If the first argument is not
-    shape-like, it is returned as is and other arguments are ignored.
-    """
-    if isinstance(shape_or_value, (tuple, th.Size)):
-        unconstrained = th.randn(batch_shape + shape_or_value)
-        # Manually apply a positive definite constraint (see
-        # https://github.com/pytorch/pytorch/pull/76777 for details).
-        if constraint is constraints.positive_definite:
-            value: th.Tensor = th.distributions.LowerCholeskyTransform()(unconstrained)
-            return value @ value.mT + 1e-3 * th.eye(value.shape[-1])
-        else:
-            transform: th.distributions.Transform = th.distributions.transform_to(constraint)
-            return transform(unconstrained)
-    else:
-        return shape_or_value
 
 
 def check_reshaped_dist(dist: th.distributions.Distribution, shape_to: typing.Tuple[int]) -> None:
