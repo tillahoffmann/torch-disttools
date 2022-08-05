@@ -164,9 +164,26 @@ def test_reshape_independent(batch_shapes: typing.Tuple[int], reinterpreted_batc
     check_reshaped_dist(dist, shape_to)
 
 
-@pytest.mark.skip("not yet implemented")
-def test_reshape_mixture_same_family(batch_shapes: typing.Tuple[int]):
-    raise NotImplementedError
+@pytest.mark.parametrize("num_components", [1, 2, 3])
+@pytest.mark.parametrize("scalar", [False, True])
+def test_reshape_mixture_same_family(batch_shapes: typing.Tuple[int], num_components: int,
+                                     scalar: bool):
+    shape_from, shape_to = batch_shapes
+    mixture_shape = *shape_from, num_components
+    mixture_distribution = th.distributions.Categorical(logits=th.randn(mixture_shape))
+    if scalar:
+        component_distribution = th.distributions.Normal(
+            th.randn(mixture_shape), th.randn(mixture_shape).exp())
+    else:
+        num_dims = 5
+        loc = th.randn(*mixture_shape, num_dims)
+        cov = th.randn(*mixture_shape, num_dims).exp().diag_embed()
+        component_distribution = th.distributions.MultivariateNormal(loc, cov)
+
+    assert mixture_distribution.batch_shape + (num_components,) \
+        == component_distribution.batch_shape, "batch shapes do not match"
+    dist = th.distributions.MixtureSameFamily(mixture_distribution, component_distribution)
+    check_reshaped_dist(dist, shape_to)
 
 
 @pytest.mark.parametrize("transform", [

@@ -85,13 +85,26 @@ def _reshape_independent_distribution(
         distribution: th.distributions.Independent, batch_shape: th.Size,
         event_dims: typing.Optional[typing.Mapping[str, int]] = None) \
         -> th.distributions.Independent:
-    # The base distribution will have more dimensions than the base distribution. So we need to
-    # handle the extra dimensions explicitly.
+    # The base distribution will have more dimensions than the independent distribution. So we need
+    # to handle the extra dimensions explicitly.
     base_dist = distribution.base_dist
     reinterpreted_shape = base_dist.batch_shape[-distribution.reinterpreted_batch_ndims:]
     reshaped_base_dist = reshape(distribution.base_dist, batch_shape + reinterpreted_shape,
                                  event_dims)
     return type(distribution)(reshaped_base_dist, distribution.reinterpreted_batch_ndims)
+
+
+def _reshape_mixture_distribution(
+        distribution: th.distributions.MixtureSameFamily, batch_shape: th.Size,
+        event_dims: typing.Optional[typing.Mapping[str, int]] = None) \
+        -> th.distributions.MixtureSameFamily:
+    # We need to reshape the mixture and component distributions separately, then reconstruct the
+    # mixture.
+    mixture_distribution: th.distributions.Categorical = \
+        reshape(distribution.mixture_distribution, batch_shape)
+    component_shape = batch_shape + (mixture_distribution._num_events,)
+    component_distribution = reshape(distribution.component_distribution, component_shape)
+    return type(distribution)(mixture_distribution, component_distribution)
 
 
 def reshape(
@@ -113,6 +126,8 @@ def reshape(
         return _reshape_transformed_distribution(distribution, batch_shape, event_dims)
     if type(distribution) is th.distributions.Independent:
         return _reshape_independent_distribution(distribution, batch_shape, event_dims)
+    if type(distribution) is th.distributions.MixtureSameFamily:
+        return _reshape_mixture_distribution(distribution, batch_shape)
     # Identify the event dimensions of each parameter.
     if not event_dims:
         if func := EVENT_DIM_LOOKUP.get(type(distribution)):
