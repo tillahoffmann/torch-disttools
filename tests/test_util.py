@@ -1,6 +1,4 @@
 import pytest
-import torch as th
-from torch.distributions import constraints
 from torch_disttools import util
 
 

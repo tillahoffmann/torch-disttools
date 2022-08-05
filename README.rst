@@ -31,7 +31,16 @@ The batch dimensions of a distribution can be reshaped like a tensor.
   >>> th.allclose(dist.mean.reshape(batch_reshaped), reshaped.mean)
   True
 
+Indexing distributions
+----------------------
 
-  >>> # A simple doctest.
-  >>> 2 + 2
-  4
+Batch dimensions can also be indexed like tensors.
+
+.. doctest:: group
+
+  >>> indexed = dist[2, [0, 3], ::2]  # Or use td.index(dist, (2, [0, 3], slice(None, None, 2))).
+  >>> indexed
+  Normal(loc: torch.Size([2, 3]), scale: torch.Size([2, 3]))
+  >>> # Check that the indexed mean and the mean of the reshaped distribution are the same.
+  >>> th.allclose(dist.mean[2, [0, 3], ::2], indexed.mean)
+  True
