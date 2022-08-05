@@ -4,7 +4,7 @@ from torch.distributions import constraints
 import torch_disttools as td
 import typing
 import warnings
-from .conftest import distribution_from_spec, sample_value
+from .conftest import assert_allclose, distribution_from_spec, sample_value
 
 
 def check_reshaped_dist(dist: th.distributions.Distribution, shape_to: typing.Tuple[int]) -> None:
@@ -15,7 +15,7 @@ def check_reshaped_dist(dist: th.distributions.Distribution, shape_to: typing.Tu
     # Ensure the means are the same after reshaping.
     try:
         reshaped_mean: th.Tensor = dist.mean.reshape(shape_to + dist.event_shape)
-        assert th.allclose(reshaped_mean.nan_to_num(th.pi), reshaped.mean.nan_to_num(th.pi))
+        assert_allclose(reshaped_mean, reshaped.mean)
     except NotImplementedError:
         pass
 
@@ -27,7 +27,7 @@ def check_reshaped_dist(dist: th.distributions.Distribution, shape_to: typing.Tu
     th.manual_seed(seed)
     reshaped_sample = dist.sample().reshape(shape_to + dist.event_shape)
     th.manual_seed(seed)
-    assert th.allclose(reshaped_sample.nan_to_num(th.pi), reshaped.sample().nan_to_num(th.pi))
+    assert_allclose(reshaped_sample, reshaped.sample())
 
 
 @pytest.fixture(params=[

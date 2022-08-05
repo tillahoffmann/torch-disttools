@@ -4,6 +4,23 @@ from torch.distributions import constraints
 import typing
 
 
+def assert_allclose(x: th.Tensor, y: th.Tensor, msg: str = None,
+                    ignore_matching_nans: bool = True) -> None:
+    """
+    Assert that all elements two tensors are close or have matching nans.
+
+    Args:
+        x: First tensor.
+        y: Second tensor.
+        msg: Optional assertion message.
+        ignore_matching_nans: Whether to ignore matching nans.
+    """
+    condition = th.isclose(x, y)
+    if ignore_matching_nans:
+        condition = condition | (x.isnan() & y.isnan())
+    assert condition.all(), msg
+
+
 def sample_value(shape_or_value: typing.Union[th.Size, typing.Any], batch_shape: typing.Tuple[int],
                  constraint: constraints.Constraint) -> th.Tensor:
     """
