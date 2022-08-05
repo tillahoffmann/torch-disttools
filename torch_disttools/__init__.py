@@ -1,4 +1,4 @@
-from .reshape import reshape
+from .reshaping import reshape
 
 __all__ = [
     "reshape",
