@@ -20,7 +20,9 @@ def sample_value(shape_or_value: typing.Union[th.Size, typing.Any], batch_shape:
         value: (Sampled) value that satisfies the constraint.
     """
     if isinstance(shape_or_value, (tuple, th.Size)):
-        unconstrained = th.randn(batch_shape + shape_or_value)
+        # We use a down-scaled normal distribution in the unconstrained space to avoid running into
+        # numerical errors by accident.
+        unconstrained = th.randn(batch_shape + shape_or_value) / 10
         # Manually apply a positive definite constraint (see
         # https://github.com/pytorch/pytorch/pull/76777 for details).
         if constraint is constraints.positive_definite:
