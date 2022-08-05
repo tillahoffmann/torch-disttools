@@ -2,9 +2,9 @@ import pytest
 import torch as th
 from torch.distributions import constraints
 import torch_disttools as td
-from torch_disttools.util import sample_value
 import typing
 import warnings
+from .conftest import distribution_from_spec, sample_value
 
 
 def check_reshaped_dist(dist: th.distributions.Distribution, shape_to: typing.Tuple[int]) -> None:
@@ -42,69 +42,9 @@ def batch_shapes(request: pytest.FixtureRequest):
     return request.param
 
 
-# Distribution classes and the shape of samples in unconstrained space.
-@pytest.mark.parametrize("spec", [
-    (th.distributions.Bernoulli, {"probs": ()}),
-    (th.distributions.Bernoulli, {"logits": ()}),
-    (th.distributions.Beta, {"concentration0": (), "concentration1": ()}),
-    (th.distributions.Binomial, {"total_count": th.randint(low=1, high=100, size=()), "probs": ()}),
-    (th.distributions.Categorical, {"probs": (7,)}),
-    (th.distributions.Cauchy, {"loc": (), "scale": ()}),
-    (th.distributions.Chi2, {"df": ()}),
-    (th.distributions.ContinuousBernoulli, {"probs": ()}),
-    (th.distributions.ContinuousBernoulli, {"logits": ()}),
-    (th.distributions.Dirichlet, {"concentration": (9,)}),
-    (th.distributions.Exponential, {"rate": ()}),
-    (th.distributions.FisherSnedecor, {"df1": (), "df2": ()}),
-    (th.distributions.Gamma, {"concentration": (), "rate": ()}),
-    (th.distributions.Geometric, {"probs": ()}),
-    (th.distributions.Geometric, {"logits": ()}),
-    (th.distributions.Gumbel, {"loc": (), "scale": ()}),
-    (th.distributions.HalfCauchy, {"scale": ()}),
-    (th.distributions.HalfNormal, {"scale": ()}),
-    (th.distributions.Kumaraswamy, {"concentration0": (), "concentration1": ()}),
-    (th.distributions.Laplace, {"loc": (), "scale": ()}),
-    (th.distributions.LKJCholesky, {"dim": 4, "concentration": ()}),
-    (th.distributions.LogisticNormal, {"loc": (7,), "scale": (7,)}),
-    (th.distributions.LogNormal, {"loc": (), "scale": ()}),
-    (th.distributions.LowRankMultivariateNormal, {"loc": (7,), "cov_factor": (7, 7),
-                                                  "cov_diag": (7,)}),
-    (th.distributions.Multinomial, {"total_count": 23, "probs": (5,)}),
-    (th.distributions.Multinomial, {"total_count": 31, "logits": (5,)}),
-    (th.distributions.MultivariateNormal, {"loc": (13,), "covariance_matrix": (13, 13)}),
-    (th.distributions.MultivariateNormal, {"loc": (13,), "precision_matrix": (13, 13)}),
-    (th.distributions.MultivariateNormal, {"loc": (13,), "scale_tril": (13, 13)}),
-    (th.distributions.NegativeBinomial, {"total_count": (), "probs": ()}),
-    (th.distributions.Normal, {"loc": (), "scale": ()}),
-    (th.distributions.OneHotCategorical, {"probs": (17,)}),
-    (th.distributions.OneHotCategorical, {"logits": (17,)}),
-    (th.distributions.OneHotCategoricalStraightThrough, {"probs": (17,)}),
-    (th.distributions.OneHotCategoricalStraightThrough, {"logits": (17,)}),
-    (th.distributions.Pareto, {"scale": (), "alpha": ()}),
-    (th.distributions.Poisson, {"rate": ()}),
-    (th.distributions.RelaxedBernoulli, {"probs": (), "temperature": 2}),
-    (th.distributions.RelaxedBernoulli, {"logits": (), "temperature": 1.5}),
-    (th.distributions.RelaxedOneHotCategorical, {"probs": (4,), "temperature": 1.1}),
-    (th.distributions.RelaxedOneHotCategorical, {"logits": (4,), "temperature": 1.3}),
-    (th.distributions.StudentT, {"df": (), "loc": (), "scale": ()}),
-    (th.distributions.VonMises, {"loc": (), "concentration": ()}),
-    (th.distributions.Weibull, {"scale": (), "concentration": ()}),
-])
-def test_reshape(
-    batch_shapes: typing.Tuple[th.Size, th.Size],
-    spec: typing.Tuple[
-        typing.Type[th.distributions.Distribution],
-        typing.Iterable[typing.Tuple[str, th.Size]]
-        ]):
+def test_reshape(batch_shapes: typing.Tuple[th.Size, th.Size], distribution_specification):
     shape_from, shape_to = batch_shapes
-    cls, arg_shapes = spec
-
-    # Generate the parameters we need and create a distribution.
-    args = {name: sample_value(shape, shape_from, cls.arg_constraints.get(name))
-            for name, shape in arg_shapes.items()}
-
-    dist = cls(**args)
-    assert dist.batch_shape == shape_from
+    dist = distribution_from_spec(shape_from, *distribution_specification)
     check_reshaped_dist(dist, shape_to)
 
 
@@ -138,6 +78,10 @@ def test_reshape_uniform(batch_shapes: typing.Tuple[int]):
 
 @pytest.mark.parametrize("reinterpreted_batch_ndims", [1, 2, 3])
 def test_reshape_independent(batch_shapes: typing.Tuple[int], reinterpreted_batch_ndims: int):
+    """
+    Separate test required because `reinterpreted_batch_ndims` doesn't fit into the standard
+    parameter scheme.
+    """
     shape_from, shape_to = batch_shapes
     base_shape = shape_from + (7, 9, 11)[:reinterpreted_batch_ndims]
     base_dist = th.distributions.Normal(th.randn(base_shape), th.randn(base_shape).exp())
@@ -191,6 +135,10 @@ def test_reshape_mixture_same_family(batch_shapes: typing.Tuple[int], num_compon
 ])
 def test_reshape_transformed_distribution(batch_shapes: typing.Tuple[int],
                                           transform: th.distributions.Transform):
+    """
+    Separate test required because we need to create transforms in addition to the base
+    distribution.
+    """
     shape_from, shape_to = batch_shapes
     shape = shape_from + (10,) * transform.domain.event_dim
     base_dist = th.distributions.Normal(th.randn(shape), th.randn(shape).exp())

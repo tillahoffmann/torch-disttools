@@ -22,8 +22,3 @@ def test_setattr_exists(override: bool):
         with pytest.warns(UserWarning):
             util._setattr(Foo, "foo", "bar", override=override)
         assert Foo.foo == "baz"
-
-
-def test_invalid_value():
-    with pytest.raises(ValueError):
-        util.sample_value(th.scalar_tensor(-1), None, constraints.positive)
